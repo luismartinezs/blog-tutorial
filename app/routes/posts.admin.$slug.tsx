@@ -1,13 +1,36 @@
-import type { ActionArgs } from "@remix-run/node";
+import type { ActionArgs, LoaderArgs } from "@remix-run/node";
 import { json, redirect } from "@remix-run/node";
-import { Form, useActionData, useNavigation } from "@remix-run/react";
+import {
+  Form,
+  useActionData,
+  useLoaderData,
+  useNavigation,
+} from "@remix-run/react";
 import invariant from "tiny-invariant";
 
-import { createPost } from "~/models/post.server";
+import { createPost, getPost, updatePost } from "~/models/post.server";
 
-export const action = async ({ request }: ActionArgs) => {
+export const loader = async ({ params }: LoaderArgs) => {
+  if (params.slug === "new") {
+    return json({
+      post: null,
+    });
+  }
+
+  invariant(params.slug, `params.slug is required`);
+
+  const post = await getPost(params.slug);
+
+  return json({
+    post,
+  });
+};
+
+export const action = async ({ request, params }: ActionArgs) => {
   // fake delay to illustrate progressive enhancement
-  await new Promise((res) => setTimeout(res, 1000));
+  // await new Promise((res) => setTimeout(res, 200));
+
+  invariant(params.slug, `params.slug is required`);
 
   const formData = await request.formData();
 
@@ -30,11 +53,19 @@ export const action = async ({ request }: ActionArgs) => {
   invariant(typeof slug === "string", "slug must be a string");
   invariant(typeof markdown === "string", "markdown must be a string");
 
-  await createPost({
-    title,
-    slug,
-    markdown,
-  });
+  if (params.slug === "new") {
+    await createPost({
+      title,
+      slug,
+      markdown,
+    });
+  } else {
+    await updatePost(params.slug, {
+      title,
+      slug,
+      markdown,
+    });
+  }
 
   return redirect("/posts/admin");
 };
@@ -42,20 +73,28 @@ export const action = async ({ request }: ActionArgs) => {
 const inputClassName = `w-full rounded border border-gray-500 px-2 py-1 text-lg`;
 
 export default function NewPost() {
+  const { post } = useLoaderData<typeof loader>();
   const errors = useActionData<typeof action>();
-
   const navigation = useNavigation();
-  const isCreating = Boolean(navigation.state === "submitting");
+
+  const isCreating = navigation.formData?.get("intent") === "create";
+  const isUpdating = navigation.formData?.get("intent") === "update";
+  const isNewPost = Boolean(post);
 
   return (
-    <Form method="post">
+    <Form method="post" key={post?.slug ?? "new"}>
       <p>
         <label>
           Post Title:{" "}
           {errors?.title ? (
             <em className="text-red-600">{errors.title}</em>
           ) : null}
-          <input type="text" name="title" className={inputClassName} />
+          <input
+            type="text"
+            name="title"
+            className={inputClassName}
+            defaultValue={post?.title}
+          />
         </label>
       </p>
       <p>
@@ -64,7 +103,12 @@ export default function NewPost() {
           {errors?.slug ? (
             <em className="text-red-600">{errors.slug}</em>
           ) : null}
-          <input type="text" name="slug" className={inputClassName} />
+          <input
+            type="text"
+            name="slug"
+            className={inputClassName}
+            defaultValue={post?.slug}
+          />
         </label>
       </p>
       <p>
@@ -80,15 +124,24 @@ export default function NewPost() {
           rows={20}
           name="markdown"
           className={`${inputClassName} font-mono`}
+          defaultValue={post?.markdown}
         />
       </p>
       <p className="text-right">
         <button
           type="submit"
           className="rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600 focus:bg-blue-400 disabled:bg-blue-300"
-          disabled={isCreating}
+          disabled={isCreating || isUpdating}
+          name="intent"
+          value={isNewPost ? "create" : "update"}
         >
-          {isCreating ? "Creating..." : "Create Post"}
+          {post?.slug
+            ? isCreating
+              ? "Updating..."
+              : "Update Post"
+            : isCreating
+            ? "Creating..."
+            : "Create Post"}
         </button>
       </p>
     </Form>
